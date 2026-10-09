@@ -1,0 +1,190 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="theme-color" content="#030717"><title>VECTOR RUN — DARK SYNTHWAVE</title><style>*{box-sizing:border-box}html,body{margin:0;background:#050310;color:#ddfaff;font:14px system-ui;overflow:hidden;touch-action:none}#app{position:relative;margin:auto;width:min(100vw,520px);height:100dvh;overflow:hidden;background:#09051b}canvas{width:100%;height:100%;display:block}#hud{position:absolute;top:env(safe-area-inset-top,0px);left:0;right:0;display:flex;justify-content:space-between;padding:13px 16px;font-size:12px;font-weight:900;text-shadow:0 0 10px #00eaff;pointer-events:none}#recordBanner{position:absolute;top:22%;left:8%;right:8%;text-align:center;font-size:25px;font-weight:1000;letter-spacing:2px;color:#fff7ae;text-shadow:0 0 12px #fff04a,0 0 26px #ff3acb;pointer-events:none;opacity:0;transform:scale(.8);transition:opacity .2s,transform .2s;z-index:2}#recordBanner.show{opacity:1;transform:scale(1)}#healthWrap{position:absolute;top:calc(43px + env(safe-area-inset-top,0px));left:16px;right:16px;pointer-events:none}#healthLabel{font-size:11px;font-weight:900;letter-spacing:2px;color:#c9faff;margin-bottom:5px;text-shadow:0 0 8px #00dfff}#healthTrack{height:15px;border:1px solid #57edff;border-radius:9px;background:#071327;overflow:hidden;box-shadow:0 0 12px #00dcff77,inset 0 0 8px #000}#healthFill{height:100%;width:100%;background:linear-gradient(90deg,#14e5ff,#3dffae);box-shadow:0 0 16px #35ffcb;transition:width .18s ease,background .18s ease}#soundToggle{position:absolute;top:calc(80px + env(safe-area-inset-top,0px));right:16px;z-index:3;background:#08172b;color:#8cfaff;border:1px solid #2deaff;box-shadow:0 0 12px #00dfff77;padding:8px 12px;font-size:11px;letter-spacing:1px}#controls{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom,0px));width:100%;display:flex;justify-content:center;pointer-events:none}#joy{height:152px;width:152px;border-radius:50%;border:2px solid #37eeff;background:#071b39c9;box-shadow:0 0 22px #00dbff88,inset 0 0 20px #0af5;position:relative;pointer-events:auto;touch-action:none}#knob{position:absolute;top:51px;left:51px;width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 30% 20%,#fff,#6cf7ff 35%,#0278bd);box-shadow:0 0 20px #21eaff;pointer-events:none}#overlay{position:absolute;inset:0;background:#020716c9;display:grid;place-items:center;z-index:4}#overlay.hide{display:none}.panel{width:85%;padding:24px 18px;background:#07122bea;border:1px solid #ff55d7;border-radius:18px;text-align:center;box-shadow:0 0 35px #ff36c955}h1{color:#6cfaff;letter-spacing:3px;text-shadow:0 0 18px #00ddff;margin:0}h3{color:#ff6ed4;letter-spacing:2px}p{line-height:1.5}button{border:0;border-radius:10px;padding:13px 27px;font-weight:900;background:linear-gradient(90deg,#40eaff,#f878da);color:#041222}small{display:block;color:#a7c1d5;margin-top:15px}</style></head><body><div id="app"><canvas id="c"></canvas><div id="hud"><span id="dist">DIST 0 M</span><span id="speed">SPEED 80</span><span id="hits">BEST 0 M</span></div><div id="recordBanner">NEW PERSONAL BEST!</div><div id="healthWrap"><div id="healthLabel">HULL INTEGRITY <span id="healthNum">100%</span></div><div id="healthTrack"><div id="healthFill"></div></div></div><button id="soundToggle" aria-label="Toggle game sound">SOUND ON</button><div id="controls"><div id="joy"><div id="knob"></div></div></div><div id="overlay"><div class="panel"><h1>VECTOR RUN</h1><h3>MINOR SYNTHWAVE</h3><p>Based on your sketch: dodge glowing blocks, some of which may unexpectedly slide left or right. See how far you can get! Blocks vary in size, turrets fire rapidly in unpredictable directions, and laser beams span the full track. Minor-key synthwave soundtrack: 110 BPM with a slower half-time feel, heavy layered synthesizers, deep bass, and a repeating four-note minor-key synth melodies that change with the chords.</p><button id="start">START RUN</button><small>Move thumb LEFT/RIGHT to steer directly. Push UP to accelerate and DOWN to brake. Time the laser pulses: brake to wait for an opening, then accelerate through. Each collision damages your hull. Survive as long as possible and beat your best distance.</small></div></div></div><script>
+(()=>{'use strict';const app=document.getElementById('app'),c=document.getElementById('c'),g=c.getContext('2d'),joy=document.getElementById('joy'),knob=document.getElementById('knob'),overlay=document.getElementById('overlay');let W,H,D,L,R,last=0,running=false,distance=0,speed=80,scroll=0,spawn=.3,hits=0,obstacleColorIndex=0,obstacles=[],sparks=[],flash=0,invincible=0;const BEST_KEY='lumen_anvil_vector_run_endless_best_v1';
+// Original synthesised 80s arcade loop. No external audio files or network needed.
+let audio=null,master=null,musicBus=null,fxBus=null,musicTimer=null,musicStep=0,soundOn=true;
+const soundBtn=document.getElementById('soundToggle');
+function initAudio(){try{if(!audio){const C=window.AudioContext||window.webkitAudioContext;if(!C)return;audio=new C();master=audio.createGain();master.gain.value=.399;master.connect(audio.destination);musicBus=audio.createGain();musicBus.gain.value=.48;musicBus.connect(master);fxBus=audio.createGain();fxBus.gain.value=.85;fxBus.connect(master)}if(audio.state==='suspended')audio.resume()}catch(e){}}
+function tone(freq,duration,type='square',volume=.09,bus=musicBus,when=0,finishFreq=null){if(!audio||!soundOn||!bus)return;const t=audio.currentTime+when,o=audio.createOscillator(),env=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,t);if(finishFreq)o.frequency.exponentialRampToValueAtTime(Math.max(30,finishFreq),t+duration);env.gain.setValueAtTime(.0001,t);env.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),t+.012);env.gain.exponentialRampToValueAtTime(.0001,t+duration);o.connect(env);env.connect(bus);o.start(t);o.stop(t+duration+.02)}
+// Original A-minor synthwave: 110 BPM pulse with spacious half-time musical phrasing.
+const beat=60/110,stepDur=beat/4;
+const bassNotes=[110,87.31,73.42,82.41]; // Am - F - Dm - Em
+// Four-note minor-key hooks: a repeating phrase that changes with each chord.
+// Notes are spaced across two bars, leaving air between phrases.
+const melodicHooks=[
+ [329.63,392.00,440.00,392.00], // E4 G4 A4 G4 over Am
+ [349.23,329.63,261.63,220.00], // F4 E4 C4 A3 over F
+ [293.66,349.23,440.00,349.23], // D4 F4 A4 F4 over Dm
+ [329.63,392.00,493.88,392.00]  // E4 G4 B4 G4 over Em
+];
+const minorChords=[[220,261.63,329.63],[174.61,220,261.63],[146.83,174.61,220],[164.81,196,246.94]];
+let nextBeatTime=0;
+function synth(freq,dur,type,vol,when,cutoff=1200,attack=.015){if(!audio||!soundOn)return;
+ const o=audio.createOscillator(),f=audio.createBiquadFilter(),e=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,when);
+ f.type='lowpass';f.frequency.value=cutoff;f.Q.value=.85;e.gain.setValueAtTime(.0001,when);
+ e.gain.linearRampToValueAtTime(vol,when+attack);e.gain.exponentialRampToValueAtTime(.0001,when+dur);
+ o.connect(f);f.connect(e);e.connect(musicBus);o.start(when);o.stop(when+dur+.03);
+}
+function wideSynth(freq,dur,vol,when,cutoff=2400,attack=.012){
+ synth(freq*.996,dur,'sawtooth',vol,when,cutoff,attack);
+ synth(freq*1.004,dur,'sawtooth',vol*.78,when,cutoff*.88,attack);
+ synth(freq*2,dur*.85,'triangle',vol*.22,when,cutoff*1.25,attack);
+}
+function drum(kind,when){if(!audio||!soundOn)return;
+ if(kind==='kick'){
+  const o=audio.createOscillator(),e=audio.createGain();o.type='sine';o.frequency.setValueAtTime(175,when);o.frequency.exponentialRampToValueAtTime(46,when+.14);e.gain.setValueAtTime(.42,when);e.gain.exponentialRampToValueAtTime(.0001,when+.24);o.connect(e);e.connect(musicBus);o.start(when);o.stop(when+.25);
+ }else{
+  const len=audio.sampleRate*.2|0,buffer=audio.createBuffer(1,len,audio.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<len;i++)data[i]=(Math.random()*2-1)*Math.exp(-i/(len*(kind==='snare'?.19:.065)));
+  const n=audio.createBufferSource(),f=audio.createBiquadFilter(),e=audio.createGain();n.buffer=buffer;f.type='highpass';f.frequency.value=kind==='snare'?1050:5800;e.gain.value=kind==='snare'?.15:.048;n.connect(f);f.connect(e);e.connect(musicBus);n.start(when);
+ }
+}
+function musicTick(){if(!audio||!soundOn||!running)return;
+ while(nextBeatTime<audio.currentTime+.22){
+  const i=musicStep++,pos=i%16,bar=Math.floor(i/16),t=nextBeatTime;
+  if(pos%4===0)drum('kick',t);
+  if(pos===4||pos===12)drum('snare',t);
+  if(i%4===0)drum('hat',t);
+  // Driving octave bass and sixteenth-note synth pulse.
+  if(i%4===0){const f=bassNotes[Math.floor(i/16)%bassNotes.length];wideSynth(f,beat*.85,.10,t,510);synth(f/2,beat*.95,'sine',.19,t,170)}
+  if(i%8===6){const f=bassNotes[Math.floor(i/16)%bassNotes.length]*2;wideSynth(f,stepDur*2.5,.03,t,1150)}
+  // Big, sustained analog-style chord stacks, alternating through an original progression.
+  if(pos===0){for(const f of minorChords[bar%4])wideSynth(f,beat*3.95,.044,t,900,.23)}
+  // Repeating four-note synth motif. Each chord gets its own four-note contour;
+  // alternate phrases rise an octave at the ending for a little extra depth.
+  if(pos===0||pos===4||pos===8||pos===12){
+   const chordIndex=bar%4, noteIndex=pos/4;
+   const note=melodicHooks[chordIndex][noteIndex];
+   const phraseLift=(Math.floor(bar/4)%2===1 && noteIndex===3)?2:1;
+   wideSynth(note*phraseLift,beat*.82,.052,t,1050,.045);
+   // Quiet lower-octave layer creates a second voice without crowding the lead.
+   synth(note/2,beat*.9,'triangle',.024,t,520,.06);
+   if(noteIndex===2)synth(note*1.5,beat*.65,'sine',.008,t,900,.04);
+  }
+  nextBeatTime+=stepDur;
+ }
+}
+function startMusic(){initAudio();if(musicTimer!==null)clearInterval(musicTimer);musicStep=0;if(soundOn&&audio){nextBeatTime=audio.currentTime+.06;musicTick();musicTimer=setInterval(musicTick,70)}}
+function stopMusic(){if(musicTimer!==null){clearInterval(musicTimer);musicTimer=null}}
+function crashSound(){tone(210,.34,'sawtooth',.24,fxBus,0,55);tone(95,.28,'triangle',.19,fxBus,.05,40)}
+function gameOverSound(){[392,311,247,164].forEach((n,i)=>tone(n,.26,'square',.1,fxBus,i*.13))}
+soundBtn.onclick=()=>{soundOn=!soundOn;soundBtn.textContent=soundOn?'SOUND ON':'SOUND OFF';if(soundOn){initAudio();if(running)startMusic()}else{stopMusic();if(master&&audio)master.gain.setTargetAtTime(.0001,audio.currentTime,.015)}if(soundOn&&master&&audio)master.gain.setTargetAtTime(.399,audio.currentTime,.02)};
+let best=0;try{best=Number(localStorage.getItem(BEST_KEY))||0}catch(e){}document.getElementById('hits').textContent=`BEST ${Math.floor(best)} M`;const ship={x:.5,y:0},clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),rnd=(a,b)=>a+Math.random()*(b-a);function resize(){W=app.clientWidth;H=app.clientHeight;D=Math.min(devicePixelRatio||1,2);c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0);L=24;R=W-24;ship.y=H*.69}addEventListener('resize',resize);resize();let stick={x:0,y:0},pid=null,anchor={x:0,y:0};function move(e){let dx=e.clientX-anchor.x,dy=e.clientY-anchor.y,limit=56,len=Math.hypot(dx,dy);if(len>limit){dx*=limit/len;dy*=limit/len}stick.x=dx/limit;stick.y=dy/limit;knob.style.transform=`translate(${dx}px,${dy}px)`}joy.addEventListener('pointerdown',e=>{if(pid!==null)return;pid=e.pointerId;joy.setPointerCapture(pid);anchor.x=e.clientX;anchor.y=e.clientY;move(e);e.preventDefault()});joy.addEventListener('pointermove',e=>{if(e.pointerId===pid)move(e)});function release(e){if(e.pointerId!==pid)return;pid=null;stick.x=stick.y=0;knob.style.transform='translate(0,0)'}joy.addEventListener('pointerup',release);joy.addEventListener('pointercancel',release);addEventListener('blur',()=>{pid=null;stick.x=stick.y=0;knob.style.transform='translate(0,0)'});let keys={};addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.key.startsWith('Arrow'))e.preventDefault()});addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+let shots=[],hazardCooldown=0,recordCelebration=0,recordTriggered=false;function reset(){document.getElementById("healthFill").style.width="100%";document.getElementById("healthNum").textContent="100%";document.getElementById("healthFill").style.background="linear-gradient(90deg,#14e5ff,#3dffae)";running=true;distance=scroll=hits=flash=invincible=0;speed=80;spawn=.2;obstacleColorIndex=0;obstacles=[];sparks=[];shots=[];hazardCooldown=0;recordCelebration=0;recordTriggered=false;document.getElementById("recordBanner").classList.remove("show");ship.x=.5;overlay.classList.add('hide');startMusic();last=performance.now()}document.getElementById('start').onclick=reset;function addObstacle(){
+ let tier=Math.min(1,distance/5200),kind=Math.random(),w=48,h=40,lane=Math.random(),x=lane<.22?rnd(.025,.12):lane<.44?rnd(.88,.975):rnd(.12,.88);
+ let activeAllowed=distance>450&&hazardCooldown<=0;
+ let alienAllowed=distance>850&&hazardCooldown<=0&&Math.random()<.20;
+ let type=alienAllowed?'alien':activeAllowed&&distance>1200&&Math.random()<.13?'laser':activeAllowed&&Math.random()<.24?'turret':'block';
+ if(type!=='block')hazardCooldown=distance>2200?4.0:5.5;
+ // Vary only passive block dimensions; active hazards keep readable hitboxes.
+ if(type==='block'){
+   // Three deliberate size bands create visual contrast while keeping gaps navigable.
+   const roll=Math.random();
+   if(roll<.22){w=rnd(20,33);h=rnd(20,34);}       // small: 22%
+   else if(roll<.73){w=rnd(43,69);h=rnd(39,67);} // medium: 51%
+   else{w=rnd(75,102);h=rnd(69,99);}             // large: 27%
+   // Alternate true squares and rectangular slabs within each size band.
+   if(Math.random()<.48){h=w;}else if(Math.random()<.5){w*=1.38;h*=.78;}else{w*=.78;h*=1.38;}
+   // Cap the largest blocks relative to the available track width on narrow phones.
+   w=Math.min(w,(R-L)*.30);
+ }
+ let motion=type==='alien'?'erratic':'still';
+ let amp=type==='alien'?rnd(.17,.27):0;
+ obstacles.push({type,x,base:x,y:-70,w,h,amp,phase:rnd(0,6.28),freq:rnd(.75,1.45)+tier*.65,motion,dir:Math.random()<.5?-1:1,age:0,col:type==='alien'?'#ff55df':type==='turret'?'#ae65ff':type==='laser'?'#38ff85':['#00cfff','#ae65ff','#38ff85','#fff04a','#ff355e'][obstacleColorIndex++%5],hit:false,fired:false,laserTimer:0,laserState:'idle',laserWidth:0,rotation:rnd(0,Math.PI*2),angularSpeed:rnd(.7,1.25)*(Math.random()<.5?-1:1),fireTimer:.35,laserCycle:1.35,laserSide:x>.5?-1:1,alienTarget:x,alienTurn:rnd(.25,.85),alienVX:0,alienMode:Math.random()<.5?1:-1})
+}
+function burst(x,y,col){for(let i=0;i<20;i++){let a=rnd(0,6.28),v=rnd(55,180);sparks.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:rnd(.25,.65),col})}}function end(){running=false;stopMusic();gameOverSound();const score=Math.floor(distance),record=score>best;if(record){best=score;try{localStorage.setItem(BEST_KEY,String(best))}catch(e){}}document.querySelector('.panel h1').textContent=record?'NEW RECORD!':'RUN OVER';document.querySelector('.panel h3').textContent=record?'PERSONAL BEST':'BEAT YOUR BEST';document.querySelector('.panel p').textContent=`You traveled ${score.toLocaleString()} meters! Best: ${Math.floor(best).toLocaleString()} meters.`;document.getElementById('start').textContent='PLAY AGAIN';overlay.classList.remove('hide')}
+function takeHit(col){if(invincible>0||!running)return;hits++;const hp=Math.max(0,100-hits*20);document.getElementById('healthNum').textContent=hp+'%';document.getElementById('healthFill').style.width=hp+'%';document.getElementById('healthFill').style.background=hp<=40?'linear-gradient(90deg,#ff426d,#ffb347)':hp<=60?'linear-gradient(90deg,#ffc247,#ffe16a)':'linear-gradient(90deg,#14e5ff,#3dffae)';flash=.3;invincible=1.5;crashSound();speed=Math.max(25,speed*.55);burst(L+ship.x*(R-L),ship.y,col);if(hits>=5)end();}
+function update(dt){let sx=clamp(stick.x+(keys.arrowright||keys.d?1:0)-(keys.arrowleft||keys.a?1:0),-1,1),sy=clamp(-stick.y+(keys.arrowup||keys.w?1:0)-(keys.arrowdown||keys.s?1:0),-1,1);let target=sy>.08?80+sy*150:sy<-.08?80+sy*72:80;speed+=clamp(target-speed,-440*dt,320*dt);speed=clamp(speed,18,230);ship.x=clamp(ship.x+sx*1.22*dt,.065,.935);distance+=speed*dt*.7;
+ if(!recordTriggered&&distance>best&&distance>25){recordTriggered=true;recordCelebration=2.7;}
+ recordCelebration=Math.max(0,recordCelebration-dt);document.getElementById("recordBanner").classList.toggle("show",recordCelebration>0);
+ scroll+=speed*dt*2.5;spawn-=dt;hazardCooldown=Math.max(0,hazardCooldown-dt);if(spawn<=0){const clear=obstacles.every(o=>o.y>=75);if(clear){addObstacle();spawn=rnd(.64,.92)*Math.max(.55,1-distance/7000)}else{spawn=.07}}invincible=Math.max(0,invincible-dt);let px=L+ship.x*(R-L);for(let i=obstacles.length-1;i>=0;i--){let o=obstacles[i];o.age+=dt;o.y+=(speed*(1.15+Math.min(.55,distance/9000))+36)*dt;if(o.type==='alien'){
+  o.alienTurn-=dt;
+  if(o.alienTurn<=0){o.alienTurn=rnd(.35,1.15);o.alienTarget=clamp(o.x+rnd(-.42,.42),.07,.93);}
+  const delta=o.alienTarget-o.x;
+  const desired=clamp(delta*4,-.75,.75);
+  o.alienVX+=(desired-o.alienVX)*Math.min(1,dt*3.5);
+  o.x=clamp(o.x+o.alienVX*dt,.05,.95);
+ }else{o.x=o.base;}
+ let ox=L+o.x*(R-L);
+ // Rapid rotating turret: each shot has a randomized independent trajectory.
+ if(o.type==='turret'){
+   o.rotation+=o.angularSpeed*dt;
+   o.fireTimer-=dt;
+   if(o.fireTimer<=0){
+     o.fireTimer+=.38;
+     const a=Math.random()*Math.PI*2;
+     shots.push({x:ox+Math.cos(a)*24,y:o.y+Math.sin(a)*24,vx:Math.cos(a)*185,vy:Math.sin(a)*185,life:3.1,col:'#16dfff'});
+     o.fired=true;o.laserTimer=.18;
+   }
+   o.laserTimer=Math.max(0,o.laserTimer-dt);
+ }
+ // Timed cyan laser: 0.55s warning, 1s active beam, cooldown.
+ // Beam spans the entire track, with warning before activation.
+ if(o.type==='laser'){
+   o.laserCycle-=dt;
+   if(o.laserState==='idle'&&o.laserCycle<=1.2){o.laserState='warn';}
+   if(o.laserState==='warn'&&o.laserCycle<=.65){o.laserState='active';}
+   if(o.laserState==='active'&&o.laserCycle<=-.35){o.laserState='idle';o.laserCycle=1.65;}
+   o.laserWidth=R-L;
+   const start=o.laserSide===1?ox+o.w/2:ox-o.w/2;
+   const end=o.laserSide===1?R:L;
+   if(o.laserState==='active'&&invincible<=0&&px>=Math.min(start,end)&&px<=Math.max(start,end)){const gap=Math.abs(ship.y-o.y);if(gap<12){takeHit('#16dfff');if(!running)break;}}
+ }
+ if(!o.hit&&invincible<=0&&Math.abs(ox-px)<o.w/2+11&&Math.abs(o.y-ship.y)<o.h/2+18){o.hit=true;takeHit(o.col);if(!running)break;}if(o.y>H+80)obstacles.splice(i,1)}for(let i=shots.length-1;i>=0;i--){let p=shots[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;const shotGap=Math.hypot(p.x-px,p.y-ship.y);if(invincible<=0&&shotGap<18){takeHit(p.col);shots.splice(i,1);continue}if(p.life<=0||p.x<L-30||p.x>R+30||p.y>H+30)shots.splice(i,1)}for(let i=sparks.length-1;i>=0;i--){let p=sparks[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;if(p.life<=0)sparks.splice(i,1)}flash=Math.max(0,flash-dt);document.getElementById('dist').textContent=`DIST ${Math.floor(distance)} M`;document.getElementById('speed').textContent=`SPEED ${Math.round(speed)}`;document.getElementById('hits').textContent=`BEST ${Math.max(Math.floor(best),Math.floor(distance))} M`;}
+function line(x,y,xx,yy,color,width,blur){g.beginPath();g.moveTo(x,y);g.lineTo(xx,yy);g.strokeStyle=color;g.lineWidth=width;g.shadowBlur=blur;g.shadowColor=color;g.stroke();g.shadowBlur=0}function draw(){
+const bg=g.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#09041c');bg.addColorStop(.6,'#100525');bg.addColorStop(1,'#050315');g.fillStyle=bg;g.fillRect(0,0,W,H);
+const track=g.createLinearGradient(L,0,R,0);track.addColorStop(0,'#190827');track.addColorStop(.5,'#0b0a24');track.addColorStop(1,'#190827');g.fillStyle=track;g.fillRect(L,0,R-L,H);
+let gap=43,off=scroll%gap;
+// Neon pink grid: faint wide halo behind crisp pink lines
+for(let x=L;x<=R;x+=gap){line(x,0,x,H,'#ff2ab044',5,22);line(x,0,x,H,'#ff63d7bb',1.25,11)}
+for(let y=off-gap;y<H;y+=gap){line(L,y,R,y,'#ff2ab04d',5,22);line(L,y,R,y,'#ff63d7c9',1.35,12)}
+line(L,0,L,H,'#00cfff',3.5,24);line(R,0,R,H,'#00cfff',3.5,24);
+line(L+7,0,L+7,H,'#35eaff88',1,9);line(R-7,0,R-7,H,'#35eaff88',1,9);
+// Subtle moving light pulses along track sides
+for(let y=(scroll*.65)%150-150;y<H;y+=150){line(L+2,y,L+2,y+34,'#c6faff',3,19);line(R-2,y,R-2,y+34,'#c6faff',3,19)}
+for(let o of obstacles){let x=L+o.x*(R-L);g.save();g.translate(x,o.y);
+if(o.type==='alien'){
+ // Neon alien craft: sweeping movement, no weapons; collision only.
+ g.rotate(Math.sin(o.age*2+o.phase)*.18);
+ g.shadowColor='#ff4edb';g.shadowBlur=24;g.fillStyle='#180a37';g.strokeStyle='#ff70e8';g.lineWidth=3;
+ g.beginPath();g.moveTo(0,-23);g.lineTo(13,-9);g.lineTo(24,11);g.lineTo(8,6);g.lineTo(0,14);g.lineTo(-8,6);g.lineTo(-24,11);g.lineTo(-13,-9);g.closePath();g.fill();g.stroke();
+ g.shadowColor='#25eaff';g.shadowBlur=18;g.fillStyle='#5cf5ff';g.beginPath();g.ellipse(0,-4,7,10,0,0,Math.PI*2);g.fill();
+ g.shadowColor='#ff55db';g.fillStyle='#ff80e9';g.fillRect(-19,6,5,4);g.fillRect(14,6,5,4);
+ g.restore();continue;
+}
+// Luminous neon blocks: outer halo, bright rim, and color-lit center.
+g.shadowColor=o.col;
+g.shadowBlur=38;g.globalAlpha=.40;g.fillStyle=o.col;g.fillRect(-o.w/2-2,-o.h/2-2,o.w+4,o.h+4);
+g.globalAlpha=1;g.shadowBlur=26;g.lineWidth=5;g.strokeStyle=o.col;g.strokeRect(-o.w/2,-o.h/2,o.w,o.h);
+g.shadowBlur=9;g.lineWidth=2;g.strokeStyle='#f5fbff';g.strokeRect(-o.w/2+2,-o.h/2+2,o.w-4,o.h-4);
+g.shadowBlur=0;const fill=g.createLinearGradient(-o.w/2,-o.h/2,o.w/2,o.h/2);fill.addColorStop(0,'#18203a');fill.addColorStop(.5,'#080a21');fill.addColorStop(1,'#19102b');g.fillStyle=fill;g.fillRect(-o.w/2+4,-o.h/2+4,o.w-8,o.h-8);
+g.globalAlpha=.26;g.fillStyle=o.col;g.fillRect(-o.w/2+5,-o.h/2+5,o.w-10,8);g.fillRect(-o.w/2+5,-o.h/2+5,8,o.h-10);
+g.globalAlpha=.86;g.strokeStyle=o.col;g.lineWidth=1.5;g.strokeRect(-o.w/2+9,-o.h/2+9,o.w-18,o.h-18);
+g.globalAlpha=1;
+if(o.type==='turret'){
+ // Overlay a rotating, breathing diamond with a directional muzzle.
+ const pulse=1+.10*Math.sin(o.age*5.8);
+ g.save();g.rotate(o.rotation);g.scale(pulse,pulse);
+ g.shadowColor='#ae65ff';g.shadowBlur=26+9*Math.sin(o.age*5.8);g.strokeStyle='#edbaff';g.lineWidth=3;
+ g.beginPath();g.moveTo(0,-29);g.lineTo(29,0);g.lineTo(0,29);g.lineTo(-29,0);g.closePath();g.stroke();
+ g.shadowColor='#16dfff';g.shadowBlur=19;g.fillStyle='#16dfff';g.fillRect(-4,-29,8,10);
+ g.restore();
+ const charge=Math.max(0,1-o.fireTimer/.38);
+ g.shadowColor='#16dfff';g.shadowBlur=12+charge*22;g.fillStyle=o.laserTimer>0?'#ffffff':'#3cf3ff';
+ g.beginPath();g.arc(0,0,5+charge*3,0,Math.PI*2);g.fill();
+}
+if(o.type==='laser'){
+ g.shadowColor='#16dfff';g.shadowBlur=24;g.strokeStyle='#6eeaff';g.lineWidth=3;
+ g.beginPath();g.moveTo(o.laserSide*8,-12);g.lineTo(o.laserSide*19,0);g.lineTo(o.laserSide*8,12);g.stroke();
+ if(o.laserState==='warn'||o.laserState==='active'){
+   const from=o.laserSide*o.w/2;
+   const to=(o.laserSide===1?R:L)-x;
+   g.beginPath();g.moveTo(from,0);g.lineTo(to,0);
+   g.strokeStyle=o.laserState==='warn'?'#4bdeff':'#00cfff';g.lineWidth=o.laserState==='warn'?2:9;
+   g.shadowColor='#00cfff';g.shadowBlur=o.laserState==='warn'?10:28;
+   if(o.laserState==='warn')g.setLineDash([8,8]);g.stroke();g.setLineDash([]);
+   if(o.laserState==='active'){g.strokeStyle='#e5ffff';g.lineWidth=2.5;g.stroke();}
+ }
+}
+g.restore()}
+for(let p of shots){g.save();g.shadowColor=p.col;g.shadowBlur=22;g.fillStyle='#dfffff';g.beginPath();g.arc(p.x,p.y,5,0,Math.PI*2);g.fill();g.restore()}
+let x=L+ship.x*(R-L),y=ship.y;const showShip=invincible<=0||Math.floor(invincible*9)%2===0;if(showShip){g.save();g.translate(x,y);g.shadowColor='#2efaff';g.shadowBlur=24;g.lineWidth=3;g.strokeStyle='#4afaff';g.fillStyle='#071a37';g.beginPath();g.moveTo(0,-28);g.lineTo(14,-5);g.lineTo(18,18);g.lineTo(5,10);g.lineTo(0,18);g.lineTo(-5,10);g.lineTo(-18,18);g.lineTo(-14,-5);g.closePath();g.fill();g.stroke();g.fillStyle='#86faff';g.fillRect(-4,-10,8,14);g.shadowColor='#ffb249';g.fillStyle='#ffba51';g.beginPath();g.moveTo(-8,17);g.lineTo(0,25+speed/22);g.lineTo(8,17);g.fill();g.restore()}for(let p of sparks){g.globalAlpha=clamp(p.life*2,0,1);g.fillStyle=p.col;g.fillRect(p.x,p.y,4,4)}g.globalAlpha=1;if(flash>0){g.fillStyle=`rgba(255,72,130,${flash*.6})`;g.fillRect(0,0,W,H)}}function frame(t){let dt=Math.min(.04,(t-last)/1000||0);last=t;if(running)update(dt);draw();requestAnimationFrame(frame)}requestAnimationFrame(frame)})();
+</script></body></html>
